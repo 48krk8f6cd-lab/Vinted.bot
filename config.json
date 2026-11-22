@@ -1,0 +1,15 @@
+{
+  "domain": "www.vinted.fr",
+  "discord_webhook": "REMPLACE_PAR_LE_SECRET_GITHUB",
+  "interval_seconds": 90,
+  "searches": [
+    {
+      "query": "veste carhartt",
+      "price_max": 40
+    },
+    {
+      "query": "nike tech fleece",
+      "price_max": 35
+    }
+  ]
+}
