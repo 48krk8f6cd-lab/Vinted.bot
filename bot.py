@@ -36,7 +36,6 @@ def load_seen():
 
 
 def save_seen(seen):
-    # On garde les 5000 derniers ids pour ne pas grossir indéfiniment
     SEEN_FILE.write_text(json.dumps(sorted(seen)[-5000:]))
 
 
@@ -44,7 +43,8 @@ def new_session(domain):
     """Ouvre une session : la page d'accueil fournit le cookie nécessaire à l'API."""
     s = requests.Session()
     s.headers.update(HEADERS)
-    s.get(f"https://{domain}/", timeout=15)
+    r = s.get(f"https://{domain}/", timeout=15)
+    print(f"[diag] accueil statut={r.status_code} cookies={list(s.cookies.keys())}")
     return s
 
 
@@ -73,9 +73,12 @@ def build_url(domain, search):
 def fetch_items(session, domain, search):
     r = session.get(build_url(domain, search), timeout=15)
     if r.status_code in (401, 403):
-        # Cookie expiré : on renouvelle la session une fois
         session.get(f"https://{domain}/", timeout=15)
         r = session.get(build_url(domain, search), timeout=15)
+    print(
+        f"[diag] api statut={r.status_code} "
+        f"type={r.headers.get('content-type')} debut={r.text[:150]!r}"
+    )
     r.raise_for_status()
     return r.json().get("items", [])
 
@@ -112,10 +115,9 @@ def send_discord(webhook, domain, item, label):
 def main():
     cfg = load_config()
     domain = cfg.get("domain", "www.vinted.fr")
-    # Le webhook peut venir d'une variable d'environnement (GitHub Secrets)
     webhook = os.environ.get("DISCORD_WEBHOOK") or cfg["discord_webhook"]
-    once = bool(os.environ.get("RUN_ONCE"))  # une seule passe (mode GitHub Actions)
-    interval = max(int(cfg.get("interval_seconds", 90)), 60)  # jamais sous 60 s
+    once = bool(os.environ.get("RUN_ONCE"))
+    interval = max(int(cfg.get("interval_seconds", 90)), 60)
 
     seen = load_seen()
     first_run = not seen
@@ -129,14 +131,14 @@ def main():
                 items = fetch_items(session, domain, search)
             except Exception as e:
                 print(f"[{label}] erreur : {e}")
-                time.sleep(30)
+                time.sleep(5 if once else 30)
                 continue
 
             fresh = [i for i in items if i["id"] not in seen]
-            for item in reversed(fresh):  # du plus ancien au plus récent
+            for item in reversed(fresh):
                 seen.add(item["id"])
                 if first_run:
-                    continue  # 1er passage : on mémorise sans notifier
+                    continue
                 try:
                     send_discord(webhook, domain, item, label)
                 except Exception as e:
@@ -144,11 +146,11 @@ def main():
                 time.sleep(1)
             if fresh:
                 print(f"[{label}] {len(fresh)} nouvelle(s) annonce(s)")
-            time.sleep(random.uniform(3, 8))  # petite pause entre deux recherches
+            time.sleep(random.uniform(3, 8))
 
         if first_run:
             first_run = False
-            print("Historique initial mémorisé. Les prochaines annonces seront envoyées.")
+            print("Fin du premier passage.")
         save_seen(seen)
         if once:
             break
